@@ -2,7 +2,7 @@
 # by Dominik Stanisław Suchora <suchora.dominik7@gmail.com>
 # License: GNU GPLv3
 
-SORT=''
+SORT='' #name
 PAGE=1
 SEARCH=''
 DOMAIN='https://nyaa.si'
@@ -106,52 +106,63 @@ do
         esac
         shift;;
     *)
-      SEARCH="$1";;
+      if [ -z "$SEARCH" ]
+      then
+        SEARCH="$1"
+      else
+        SEARCH="$SEARCH $1"
+      fi;;
   esac
   shift
 done
 
 SEARCHP="$(echo "$SEARCH" | tr ' ' '+')"
 
-t1="$(mktemp)"
-t_category="$(mktemp)"
-t_se="$(mktemp)"
-t_le="$(mktemp)"
-t_name="$(mktemp)"
-t_magnets="$(mktemp)"
-t_size="$(mktemp)"
-t_date="$(mktemp)"
-t_downloaded="$(mktemp)"
-trap 'rm "$t1" "$t_size" "$t_date" "$t_downloaded" "$t_se" "$t_le" "$t_name" "$t_category" "$t_magnets"' EXIT
+t1="$(ucurl -s "$DOMAIN/?f=$FILTER&c=$CATEGORY&q=$SEARCHP&s=$SORT&o=$RSORT&p=$PAGE" | hgrep 'table +class="table table-bordered table-hover table-striped torrent-list"')"
+magnets="$(echo "$t1" | hgrep 'td +class; a +href="magnet:?.*" @p"%(href)a\n"')"
+{
+echo "$t1" | hgrep 'a +href="/?c=[0-9]_[0-9]"; img +class="category-icon" +alt @p"%(alt)a\n"' #category
+echo "$t1" | hgrep 'td +colspan="2"; a +href="/view/[0-9]*" @p"%i\n"' #name
+echo "$t1" | hgrep 'td +class @m"iB$" @p"%i\n"' #size
+echo "$t1" | hgrep 'td +class +data-timestamp @p"%i\n"' #date
+t2="$(echo "$t1" | hgrep 'td +class @m"^[0-9]\+$" @p"%i\n"' | sed 'N;N; s/\n/,/g')"
+echo "$t2" | cut -d ',' -f1 #se
+echo "$t2" | cut -d ',' -f2 #le
+echo "$t2" | cut -d ',' -f3 #downloaded
+} | awk 'function print_fields(lines,fields,step) {
+        colors[0] = '"$C_CATEGORY"'
+        colors[1] = '"$C_NAME"'
+        colors[2] = '"$C_SIZE"'
+        colors[3] = '"$C_DATE"'
+        colors[4] = '"$C_SE"'
+        colors[5] = '"$C_LE"'
+        colors[6] = '"$C_DOWNLOADED"'
+        ORS = ""
+        for (i = 0; i < step; i++) {
+            for (j = 0; j < fields; j++) {
+                if (j != 0)
+                    print "'"$DELIM"'"
+                if ('"$COLOR"')
+                    print "\033["colors[j]"m"lines[(step*j)+i]"\033[0m"
+                else
+                    print lines[(step*j)+i]
+            }
+            printf "\n"
+        }
+    }
 
-ucurl -s "$DOMAIN/?f=$FILTER&c=$CATEGORY&q=$SEARCHP&s=$SORT&o=$RSORT&p=$PAGE" | hgrep 'table +class="table table-bordered table-hover table-striped torrent-list"' > "$t1"
-hgrep 'td +colspan="2"; a +href="/view/[0-9]*" @p"%i\n"' "$t1" > "$t_name"
-hgrep 'a +href="/?c=[0-9]_[0-9]"; img +class="category-icon" +alt @p"%(alt)a\n"' "$t1" > "$t_category"
-hgrep 'td +class; a +href="magnet:?.*" @p"%(href)a\n"' "$t1" > "$t_magnets"
-hgrep 'td +class @m"iB$" @p"%i\n"' "$t1" > "$t_size"
-hgrep 'td +class +data-timestamp @p"%i\n"' "$t1" > "$t_date"
-t2="$(hgrep 'td +class @m"^[0-9]\+$" @p"%i\n"' "$t1" | sed 'N;N; s/\n/,/g')"
-echo "$t2" | cut -d ',' -f1 > "$t_se"
-echo "$t2" | cut -d ',' -f2 > "$t_le"
-echo "$t2" | cut -d ',' -f3 > "$t_downloaded"
+    BEGIN { l=0; fields = 7 }
+    { lines[l++]=$0 }
+    END {
+        if (l >= fields)
+        if (l%fields == 0) {
+                step = l/fields
+                print_fields(lines,fields,step)
+        } else
+            print "length of some data fields does not match the others"
+    }' | nl
 
-color_lines() {
-    sed "s/^/\x1b[$1m/; s/$/\x1b[0m/" "$2" > "$3"
-    cp "$3" "$2"
-}
-
-if [ "$COLOR" -eq 1 ]
-then
-    color_lines "$C_SIZE" "$t_size" "$t1"
-    color_lines "$C_NAME" "$t_name" "$t1"
-    color_lines "$C_LE" "$t_le" "$t1"
-    color_lines "$C_SE" "$t_se" "$t1"
-    color_lines "$C_DOWNLOADED" "$t_downloaded" "$t1"
-    color_lines "$C_DATE" "$t_date" "$t1"
-    color_lines "$C_CATEGORY" "$t_category" "$t1"
-fi
-
-paste -d "$DELIM" "$t_category" "$t_name" "$t_size" "$t_date" "$t_se" "$t_le" "$t_downloaded" | nl
+[ -z "$magnets" ] && exit 1
 printf 'num> '
 read -r NUMBER
-[ "$NUMBER" -gt 0 ] && sed "${NUMBER}q;d" "$t_magnets" | tee /dev/stderr | tr -d '\n' | xclip -sel clip
+[ "$NUMBER" -gt 0 ] && echo "$magnets" | sed "${NUMBER}q;d" | tee /dev/stderr | tr -d '\n' | xclip -sel clip

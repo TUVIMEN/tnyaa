@@ -15,11 +15,11 @@ A shell script for searching torrents on nyaa.
 
 ## Usage
 
-Just type 'tnyaa "your search"', choose what you want and the magnet link will be copied to your clipboard.
+Just type 'tnyaa your search', choose what you want and the magnet link will be copied to your clipboard.
 
 Search for the biggest lossless audio
 
-    tnyaa -c audio-lossless -s size 'audio'
+    tnyaa -c audio-lossless -s size audio
 
 Search for the least seeded lossy audio on second page
 
